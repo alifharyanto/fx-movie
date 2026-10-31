@@ -20,6 +20,18 @@ You can start editing the page by modifying `app/page.tsx`. The page auto-update
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
+## FX Watch setup
+
+The catalog uses the TMDB API through a server-side Route Handler. Add your TMDB v3 API key to `.env.local`:
+
+```env
+TMDB_API_KEY=your_tmdb_api_key
+```
+
+Restart the development server after changing the environment file. The key is read only on the server and is not exposed to browser code.
+
+Available pages: `/`, `/jelajahi`, `/cari`, `/cari/[slug]`, `/detail/[id]?type=movie|tv`, `/disimpan`, `/akun`, and `/putar/[id]?type=movie|tv`. Saved titles are stored in the browser's local storage. The player route is a UI preview with related-title recommendations and does not provide video streaming.
+
 ## Learn More
 
 To learn more about Next.js, take a look at the following resources:
