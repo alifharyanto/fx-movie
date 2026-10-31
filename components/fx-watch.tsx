@@ -438,7 +438,7 @@ export function AccountExperience() {
                   style={{
                     display: "flex",
                     alignItems: "center",
-                    justify: "center",
+                    justifyContent: "center",
                     gap: "0.4rem",
                     padding: "0.5rem",
                     background: "var(--fx-accent, #2563eb)",
