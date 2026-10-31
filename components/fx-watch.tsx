@@ -9,9 +9,24 @@ import type { TmdbDetails, TmdbEpisode, TmdbList, TmdbMediaType, TmdbSeason, Tmd
 
 const SAVED_KEY = "fx-watch-saved";
 const SAVED_EVENT = "fx-watch-saved-change";
+const HISTORY_KEY = "fx-watch-history";
+const HISTORY_EVENT = "fx-watch-history-change";
 
 export type SavedTitle = Omit<TmdbTitle, "media_type"> & { media_type: TmdbMediaType };
 
+export type WatchHistoryItem = {
+  id: string;
+  title: string;
+  poster_path: string | null;
+  media_type: TmdbMediaType;
+  seasonNumber?: number;
+  episodeNumber?: number;
+  server?: "vidlink" | "multiembed";
+  lastTimeFormatted?: string; // Menyimpan durasi waktu seperti "12:34" atau "Terakhir dibuka"
+  updatedAt: number;
+};
+
+/* --- HOOK: SAVED TITLES --- */
 function readSavedTitles(): SavedTitle[] {
   try {
     const value: unknown = JSON.parse(localStorage.getItem(SAVED_KEY) ?? "[]");
@@ -49,6 +64,48 @@ function useSavedTitles() {
   return { saved, toggle };
 }
 
+/* --- HOOK: WATCH HISTORY --- */
+function readWatchHistory(): WatchHistoryItem[] {
+  try {
+    const value: unknown = JSON.parse(localStorage.getItem(HISTORY_KEY) ?? "[]");
+    return Array.isArray(value) ? value : [];
+  } catch {
+    return [];
+  }
+}
+
+function useWatchHistory() {
+  const [history, setHistory] = useState<WatchHistoryItem[]>([]);
+
+  useEffect(() => {
+    const refresh = () => setHistory(readWatchHistory());
+    refresh();
+    window.addEventListener("storage", refresh);
+    window.addEventListener(HISTORY_EVENT, refresh);
+    return () => {
+      window.removeEventListener("storage", refresh);
+      window.removeEventListener(HISTORY_EVENT, refresh);
+    };
+  }, []);
+
+  const saveHistory = (item: Omit<WatchHistoryItem, "updatedAt">) => {
+    const current = readWatchHistory();
+    const filtered = current.filter((h) => !(h.id === item.id && h.media_type === item.media_type));
+    const updated: WatchHistoryItem[] = [{ ...item, updatedAt: Date.now() }, ...filtered].slice(0, 20);
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(updated));
+    setHistory(updated);
+    window.dispatchEvent(new Event(HISTORY_EVENT));
+  };
+
+  const clearHistory = () => {
+    localStorage.removeItem(HISTORY_KEY);
+    setHistory([]);
+    window.dispatchEvent(new Event(HISTORY_EVENT));
+  };
+
+  return { history, saveHistory, clearHistory };
+}
+
 function Icon({ name, size = 20 }: { name: string; size?: number }) {
   const paths: Record<string, ReactNode> = {
     home: <><path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-6v-7h-4v7H4a1 1 0 0 1-1-1z" /></>,
@@ -60,6 +117,8 @@ function Icon({ name, size = 20 }: { name: string; size?: number }) {
     check: <path d="m5 12 4 4L19 6" />,
     play: <path d="m8 5 12 7-12 7z" fill="currentColor" stroke="none" />,
     back: <path d="m15 18-6-6 6-6" />,
+    trash: <path d="M3 6h18m-2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />,
+    clock: <><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></>,
   };
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name]}</svg>;
 }
@@ -262,7 +321,7 @@ export function SearchLanding() {
   const router = useRouter();
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const slug = query.trim().normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+    const slug = query.trim().normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/^-|-$/g, "");
     if (slug) router.push(`/cari/${slug}`);
   };
 
@@ -310,12 +369,100 @@ export function SavedExperience() {
   </main>;
 }
 
+/* --- TAMPILAN AKUN: MENAMPILKAN CARD RIWAYAT LENGKAP DENGAN WAKTU TERAKHIR DITONTON --- */
 export function AccountExperience() {
+  const { history, clearHistory } = useWatchHistory();
+
   return <main className="fx-page-pad fx-account-page">
     <div className="fx-page-kicker">PENGATURAN PROFIL</div>
     <h1 className="fx-page-title">Akun.</h1>
-    <section className="fx-profile-panel"><div className="fx-avatar">F</div><div><span className="fx-profile-label">PROFIL LOKAL</span><h2>Penonton FX</h2><p>Pengaturan ini hanya tersimpan di tampilan demo.</p></div><span className="fx-profile-status">AKTIF</span></section>
-    <section className="fx-account-settings"><div><span>01</span><div><h3>Daftar disimpan</h3><p>Judul favorit disimpan pada perangkat ini.</p></div><Link href="/disimpan">Buka koleksi ↗</Link></div><div><span>02</span><div><h3>Sumber katalog</h3><p>Informasi judul dan poster berasal dari TMDB.</p></div><span className="fx-setting-value">TMDB API</span></div><div><span>03</span><div><h3>Keanggotaan</h3><p>Fitur login belum dihubungkan.</p></div><span className="fx-setting-value">DEMO</span></div></section>
+    <section className="fx-profile-panel"><div className="fx-avatar">F</div><div><span className="fx-profile-label">PROFIL LOKAL</span><h2>Penonton FX</h2><p>Pengaturan dan riwayat tersimpan di perangkat ini.</p></div><span className="fx-profile-status">AKTIF</span></section>
+
+    {/* Section Riwayat Tontonan */}
+    <section className="fx-account-section" style={{ marginTop: "2rem" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
+        <h2 style={{ fontSize: "1.25rem", fontWeight: 600 }}>Riwayat Tontonan</h2>
+        {history.length > 0 && (
+          <button
+            onClick={clearHistory}
+            style={{ display: "flex", alignItems: "center", gap: "0.4rem", background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontSize: "0.85rem" }}
+          >
+            <Icon name="trash" size={15} /> Hapus Riwayat
+          </button>
+        )}
+      </div>
+
+      {!history.length ? (
+        <div className="fx-empty-state">Belum ada riwayat tontonan. Mulai menonton film atau series!</div>
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: "1rem" }}>
+          {history.map((item) => {
+            const playUrl = item.media_type === "tv"
+              ? `/putar/${item.id}?type=tv&season=${item.seasonNumber ?? 1}&episode=${item.episodeNumber ?? 1}`
+              : `/putar/${item.id}?type=movie`;
+            const poster = posterUrl(item.poster_path, "w500");
+
+            return (
+              <div
+                key={`${item.media_type}-${item.id}`}
+                style={{
+                  background: "rgba(255,255,255,0.03)",
+                  borderRadius: "12px",
+                  padding: "0.75rem",
+                  border: "1px solid rgba(255,255,255,0.08)",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "0.5rem",
+                }}
+              >
+                <div style={{ aspectRatio: "16/9", borderRadius: "8px", overflow: "hidden", background: "#111", backgroundImage: poster ? `url('${poster}')` : undefined, backgroundSize: "cover", backgroundPosition: "center", position: "relative" }}>
+                  {item.server && (
+                    <span style={{ position: "absolute", top: "6px", right: "6px", background: "rgba(0,0,0,0.75)", color: "#3b82f6", fontSize: "0.7rem", fontWeight: 600, padding: "2px 6px", borderRadius: "4px", textTransform: "uppercase" }}>
+                      {item.server}
+                    </span>
+                  )}
+                </div>
+                <div style={{ flex: 1 }}>
+                  <h3 style={{ fontSize: "0.95rem", fontWeight: 600, margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.title}</h3>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "0.3rem" }}>
+                    <p style={{ fontSize: "0.8rem", color: "#a1a1aa", margin: 0 }}>
+                      {item.media_type === "tv" ? `Season ${item.seasonNumber ?? 1} · Ep ${item.episodeNumber ?? 1}` : "Film"}
+                    </p>
+                    <span style={{ fontSize: "0.75rem", color: "#3b82f6", display: "flex", alignItems: "center", gap: "3px" }}>
+                      <Icon name="clock" size={12} /> {item.lastTimeFormatted || "Terakhir dibuka"}
+                    </span>
+                  </div>
+                </div>
+                <Link
+                  href={playUrl}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justify: "center",
+                    gap: "0.4rem",
+                    padding: "0.5rem",
+                    background: "var(--fx-accent, #2563eb)",
+                    color: "#fff",
+                    borderRadius: "6px",
+                    textDecoration: "none",
+                    fontSize: "0.85rem",
+                    fontWeight: 500,
+                  }}
+                >
+                  <Icon name="play" size={14} /> Lanjutkan Nonton
+                </Link>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </section>
+
+    <section className="fx-account-settings" style={{ marginTop: "2rem" }}>
+      <div><span>01</span><div><h3>Daftar disimpan</h3><p>Judul favorit disimpan pada perangkat ini.</p></div><Link href="/disimpan">Buka koleksi ↗</Link></div>
+      <div><span>02</span><div><h3>Sumber katalog</h3><p>Informasi judul dan poster berasal dari TMDB.</p></div><span className="fx-setting-value">TMDB API</span></div>
+      <div><span>03</span><div><h3>Keanggotaan</h3><p>Fitur login belum dihubungkan.</p></div><span className="fx-setting-value">DEMO</span></div>
+    </section>
   </main>;
 }
 
@@ -424,23 +571,135 @@ export function DetailExperience({ id, type, initialSeason }: { id: string; type
   </main>;
 }
 
+/* --- PLAYER EXPERIENCE: MENANGKAP PESAN DURASI & MENYIMPAN STATUS SERVER --- */
 export function PlayerExperience({ id, type, seasonNumber, episodeNumber }: { id: string; type: TmdbMediaType; seasonNumber?: number; episodeNumber?: number }) {
   const { details, error, loading } = useTitleDetails(id, type);
-  const activeSeason = type === "tv" ? seasonNumber ?? 1 : null;
-  const { season } = useSeasonEpisodes(id, activeSeason);
-  const selectedEpisode = season?.episodes.find((episode) => episode.episode_number === episodeNumber) ?? season?.episodes[0];
-  const [playing, setPlaying] = useState(false);
+  const activeSeason = type === "tv" ? seasonNumber ?? 1 : 1;
+  const activeEpisode = type === "tv" ? episodeNumber ?? 1 : 1;
+  const { season } = useSeasonEpisodes(id, type === "tv" ? activeSeason : null);
+  const selectedEpisode = season?.episodes.find((episode) => episode.episode_number === activeEpisode) ?? season?.episodes[0];
+  const { saveHistory } = useWatchHistory();
+
+  const [activeServer, setActiveServer] = useState<"vidlink" | "multiembed">("vidlink");
+  const [currentProgress, setCurrentProgress] = useState<string>("Baru saja");
+
+  // Listener untuk menangkap postMessage durasi waktu dari player (jika didukung)
+  useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      try {
+        if (typeof event.data === "object" && event.data !== null) {
+          // VidLink/MultiEmbed timeupdate format
+          if (event.data.time || event.data.currentTime) {
+            const totalSeconds = Math.floor(event.data.time || event.data.currentTime);
+            const minutes = Math.floor(totalSeconds / 60);
+            const seconds = totalSeconds % 60;
+            const formatted = `${minutes}:${seconds < 10 ? "0" : ""}${seconds}`;
+            setCurrentProgress(formatted);
+          }
+        }
+      } catch {
+        // abaikan error parsing message
+      }
+    };
+
+    window.addEventListener("message", handleMessage);
+    return () => window.removeEventListener("message", handleMessage);
+  }, []);
+
+  // Otomatis update Riwayat Tontonan
+  useEffect(() => {
+    if (details) {
+      saveHistory({
+        id,
+        title: titleName(details),
+        poster_path: selectedEpisode?.still_path || details.backdrop_path || details.poster_path,
+        media_type: type,
+        seasonNumber: type === "tv" ? activeSeason : undefined,
+        episodeNumber: type === "tv" ? activeEpisode : undefined,
+        server: activeServer,
+        lastTimeFormatted: currentProgress,
+      });
+    }
+  }, [details, id, type, activeSeason, activeEpisode, selectedEpisode, activeServer, currentProgress]);
+
+  const embedSources = {
+    vidlink:
+      type === "tv"
+        ? `https://vidlink.pro/tv/${id}/${activeSeason}/${activeEpisode}`
+        : `https://vidlink.pro/movie/${id}`,
+    multiembed:
+      type === "tv"
+        ? `https://multiembed.mov/?video_id=${id}&tmdb=1&s=${activeSeason}&e=${activeEpisode}`
+        : `https://multiembed.mov/?video_id=${id}&tmdb=1`,
+  };
 
   return <main className="fx-page-pad fx-player-page">
-    <Link href={`/detail/${id}?type=${type}`} className="fx-back-link"><Icon name="back" size={17} /> Kembali ke detail</Link>
-    <section className="fx-player-screen">
-      {(selectedEpisode?.still_path || details?.backdrop_path) && <div className="fx-player-backdrop" style={{ backgroundImage: `url('${posterUrl(selectedEpisode?.still_path || details?.backdrop_path || null, "original")}')` }} />}
-      <div className="fx-player-overlay" />
-      <div className="fx-player-frame-label"><span /> FX WATCH PLAYER <i>SIMULASI</i></div>
-      <button className="fx-player-play" onClick={() => setPlaying(!playing)} aria-label={playing ? "Jeda" : "Putar film"}><Icon name={playing ? "check" : "play"} size={28} /></button>
-      <div className="fx-player-controls"><span>{playing ? "Simulasi player aktif" : "Pratinjau player"}</span><div><span className="fx-volume-icon">◖)))</span><span>CC</span><span>⚙</span><span>⛶</span></div></div>
+    <div className="fx-player-header-row" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem", flexWrap: "wrap", gap: "0.5rem" }}>
+      <Link href={`/detail/${id}?type=${type}`} className="fx-back-link" style={{ marginBottom: 0 }}>
+        <Icon name="back" size={17} /> Kembali ke detail
+      </Link>
+
+      <div className="fx-server-switcher" style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+        <span style={{ fontSize: "0.85rem", opacity: 0.7 }}>Server:</span>
+        <button
+          type="button"
+          onClick={() => setActiveServer("vidlink")}
+          style={{
+            padding: "0.35rem 0.85rem",
+            borderRadius: "6px",
+            border: "1px solid rgba(255,255,255,0.15)",
+            background: activeServer === "vidlink" ? "var(--fx-accent, #2563eb)" : "rgba(255,255,255,0.05)",
+            color: "#fff",
+            cursor: "pointer",
+            fontSize: "0.85rem",
+            fontWeight: 500,
+          }}
+        >
+          VidLink
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveServer("multiembed")}
+          style={{
+            padding: "0.35rem 0.85rem",
+            borderRadius: "6px",
+            border: "1px solid rgba(255,255,255,0.15)",
+            background: activeServer === "multiembed" ? "var(--fx-accent, #2563eb)" : "rgba(255,255,255,0.05)",
+            color: "#fff",
+            cursor: "pointer",
+            fontSize: "0.85rem",
+            fontWeight: 500,
+          }}
+        >
+          MultiEmbed
+        </button>
+      </div>
+    </div>
+
+    {/* Video Player */}
+    <section className="fx-player-screen" style={{ position: "relative", aspectRatio: "16/9", width: "100%", background: "#000", borderRadius: "12px", overflow: "hidden" }}>
+      <iframe
+        key={activeServer}
+        src={embedSources[activeServer]}
+        style={{ width: "100%", height: "100%", border: "none" }}
+        allow="autoplay; encrypted-media; gyroscope; picture-in-picture; fullscreen"
+        allowFullScreen
+        title={details ? titleName(details) : "Video Player"}
+      />
     </section>
-    {error ? <DataState loading={false} error={error} /> : loading || !details ? <DataState loading /> : <section className="fx-player-details"><h1>{titleName(details)}</h1><div className="fx-player-genres">{details.genres?.length ? details.genres.map((genre) => <span key={genre.id}>{genre.name}</span>) : <span>Genre belum tersedia</span>}</div>{type === "tv" && activeSeason !== null && <div className="fx-player-episode"><span>EPISODE</span><strong>{titleName(details)} Season {activeSeason} | Episode {selectedEpisode?.episode_number ?? episodeNumber ?? 1}</strong>{selectedEpisode && <em>{selectedEpisode.name} · {season?.episode_count ?? season?.episodes.length ?? 0} episode di season ini</em>}</div>}</section>}
+
+    {error ? <DataState loading={false} error={error} /> : loading || !details ? <DataState loading /> : <section className="fx-player-details">
+      <h1>{titleName(details)}</h1>
+      <div className="fx-player-genres">
+        {details.genres?.length ? details.genres.map((genre) => <span key={genre.id}>{genre.name}</span>) : <span>Genre belum tersedia</span>}
+      </div>
+      {type === "tv" && <div className="fx-player-episode">
+        <span>EPISODE</span>
+        <strong>{titleName(details)} Season {activeSeason} | Episode {selectedEpisode?.episode_number ?? activeEpisode}</strong>
+        {selectedEpisode && <em>{selectedEpisode.name} · {season?.episode_count ?? season?.episodes.length ?? 0} episode di season ini</em>}
+      </div>}
+    </section>}
+
     <TmdbCollection params={{ action: "recommendations", id, type }} heading="Film serupa" limit={10} horizontal />
   </main>;
 }

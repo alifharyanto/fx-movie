@@ -398,8 +398,9 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 2px solid 
 .fx-episode-state { padding: 13px 0; color: #89837f; font-size: 10px; }
 
 @media (max-width: 700px) {
-  .fx-header { top: 0; right: 0; left: 0; width: 100%; height: 62px; gap: 0; padding: 0 17px; transform: none; border: 0; border-radius: 0; background: transparent; box-shadow: none; backdrop-filter: none; }
-  .fx-header.is-scrolled { border-bottom: 1px solid rgba(255,255,255,.09); background: rgba(14,14,14,.82); box-shadow: 0 8px 26px rgba(0,0,0,.22); backdrop-filter: blur(20px) saturate(130%); }
+  .fx-header { top: 0; right: 0; left: 0; width: 100%; height: 62px; gap: 0; padding: 0 17px; transform: none; border: 1px solid transparent; border-radius: 0; background: transparent; box-shadow: none; backdrop-filter: none; transition: width 560ms cubic-bezier(.22,1,.36,1), background-color .36s ease, box-shadow .36s ease, border-color .36s ease, border-radius .48s cubic-bezier(.22,1,.36,1), top .36s ease; }
+  .fx-header.is-scrolled { top: 10px; right: auto; left: 50%; width: min(calc(100% - 32px), var(--fx-mobile-nav-width)); height: 58px; padding: 0 13px; transform: translateX(-50%); border-color: rgba(255,255,255,.15); border-radius: 999px; background: rgba(22,22,22,.86); box-shadow: 0 9px 26px rgba(0,0,0,.4), inset 0 1px rgba(255,255,255,.06); backdrop-filter: blur(22px) saturate(135%); }
+  .fx-header.is-compact { width: min(calc(100% - 32px), var(--fx-mobile-nav-compact-width)); }
   .fx-logo { gap: 7px; font-size: 13px; }
   .fx-logo-mark { width: 26px; height: 25px; font-size: 13px; }
   .fx-desktop-nav { display: none; }
